@@ -282,13 +282,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       try {
         resolvedUrl = await resolveUrl(url)
       } catch (resolveErr: any) {
-        const isTimeout =
-          resolveErr?.code === 'ECONNABORTED' ||
-          resolveErr?.message?.toLowerCase().includes('timeout')
-        const msg = isTimeout
-          ? 'The short URL took too long to resolve. Please open the link in your browser, copy the full product URL (it contains /p/ in the path), and paste that instead.'
-          : 'Could not resolve the short URL. Please paste the full Flipkart product URL instead.'
-        return res.status(400).json({ error: msg })
+        return res.status(400).json({ error: resolveErr?.message ?? 'Could not resolve the short URL.' })
       }
     }
 
