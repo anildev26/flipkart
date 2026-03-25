@@ -1,6 +1,4 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import http from 'http'
-import https from 'https'
 import axios from 'axios'
 import * as cheerio from 'cheerio'
 
@@ -31,62 +29,33 @@ const HEADERS = {
   'Sec-Fetch-Site': 'none',
 }
 
-/**
- * Follow ONE redirect hop and return the Location header value,
- * or null if the response is not a redirect.
- * Uses Node's http/https directly so we read only headers (no body download).
- */
-function getRedirectLocation(url: string): Promise<string | null> {
-  return new Promise((resolve, reject) => {
-    const parsed = new URL(url)
-    const lib = parsed.protocol === 'https:' ? https : http
-
-    const req = lib.get(url, { headers: HEADERS, timeout: 8000 }, (res) => {
-      // Drain the body immediately so the socket is released
-      res.resume()
-      const { statusCode, headers } = res
-      if (statusCode && statusCode >= 300 && statusCode < 400 && headers.location) {
-        const loc = headers.location
-        resolve(Array.isArray(loc) ? loc[0] : loc)
-      } else {
-        resolve(null) // Final destination reached
-      }
-    })
-
-    req.on('error', reject)
-    req.on('timeout', () => {
-      req.destroy()
-      reject(new Error('URL resolution timed out after 8 s'))
-    })
-  })
-}
-
 /** Follow redirects on short/affiliate links and return the final URL */
 async function resolveUrl(startUrl: string): Promise<string> {
-  let currentUrl = startUrl
+  // Use responseType:'stream' so axios returns as soon as response headers
+  // arrive — no body is downloaded. follow-redirects (axios's underlying
+  // redirect library) stores the final URL in req._currentUrl.
+  const resp = await axios.get(startUrl, {
+    headers: HEADERS,
+    maxRedirects: 15,
+    timeout: 25000,
+    validateStatus: () => true,
+    responseType: 'stream',
+  })
 
-  for (let i = 0; i < 10; i++) {
-    const location = await getRedirectLocation(currentUrl)
-    if (!location) break
-    // Handle relative Location headers
-    currentUrl = location.startsWith('http')
-      ? location
-      : new URL(location, currentUrl).toString()
-  }
+  // Drain / close the stream immediately
+  try { resp.data?.destroy?.() } catch { /* ignore */ }
 
-  // Normalize mobile / app subdomains → www so review URLs work
-  currentUrl = currentUrl.replace(
+  // follow-redirects sets _currentUrl on the request object after each hop
+  const req = resp.request as Record<string, unknown>
+  let finalUrl = (req._currentUrl as string | undefined) ?? startUrl
+
+  // Normalize mobile / CDN subdomains → www so review URLs work
+  finalUrl = finalUrl.replace(
     /^https?:\/\/(m|dl)\.flipkart\.com/,
     'https://www.flipkart.com'
   )
 
-  if (!currentUrl.includes('flipkart.com')) {
-    throw new Error(
-      'Could not resolve the short URL. Please open the link in your browser, copy the full product URL, and paste that instead.'
-    )
-  }
-
-  return currentUrl
+  return finalUrl
 }
 
 /**
@@ -289,7 +258,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Resolve short / affiliate URLs first
     let resolvedUrl = url
     if (url.includes('dl.flipkart.com') || /\/s\/[a-zA-Z0-9]+/.test(url)) {
-      resolvedUrl = await resolveUrl(url)
+      try {
+        resolvedUrl = await resolveUrl(url)
+      } catch (resolveErr: any) {
+        const isTimeout =
+          resolveErr?.code === 'ECONNABORTED' ||
+          resolveErr?.message?.toLowerCase().includes('timeout')
+        const msg = isTimeout
+          ? 'The short URL took too long to resolve. Please open the link in your browser, copy the full product URL (it contains /p/ in the path), and paste that instead.'
+          : 'Could not resolve the short URL. Please paste the full Flipkart product URL instead.'
+        return res.status(400).json({ error: msg })
+      }
     }
 
     const allReviews: Review[] = []
