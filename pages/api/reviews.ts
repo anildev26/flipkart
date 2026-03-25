@@ -31,20 +31,26 @@ const HEADERS = {
 
 /** Follow redirects on short/affiliate links and return the final URL */
 async function resolveUrl(url: string): Promise<string> {
-  const resp = await axios.get(url, {
+  let finalUrl = url
+
+  await axios.get(url, {
     headers: HEADERS,
     maxRedirects: 10,
     timeout: 20000,
     validateStatus: () => true,
-  })
-  // axios uses the `follow-redirects` package internally; the final URL is
-  // stored on the underlying redirectable request object
-  const req = resp.request as any
-  const finalUrl: string =
-    req?._redirectable?._currentUrl ||   // follow-redirects (most reliable)
-    req?.res?.responseUrl ||             // node http module fallback
-    req?.responseURL ||
-    url
+    // follow-redirects exposes this hook; called just before each redirect
+    beforeRedirect(options: any) {
+      finalUrl = `${options.protocol}//${options.host}${options.path}`
+    },
+  } as any)
+
+  // If still on the short-URL domain, resolution failed — surface a clear error
+  if (finalUrl.includes('dl.flipkart.com') || finalUrl.includes('/s/')) {
+    throw new Error(
+      'Could not resolve the short URL. Please open it in your browser, copy the full Flipkart product URL (it should contain /p/ in the path), and paste that instead.'
+    )
+  }
+
   return finalUrl
 }
 
