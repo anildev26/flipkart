@@ -37,10 +37,13 @@ async function resolveUrl(url: string): Promise<string> {
     timeout: 20000,
     validateStatus: () => true,
   })
-  // axios exposes the final URL on the underlying http.ClientRequest
+  // axios uses the `follow-redirects` package internally; the final URL is
+  // stored on the underlying redirectable request object
+  const req = resp.request as any
   const finalUrl: string =
-    (resp.request as any)?.res?.responseUrl ||
-    (resp.request as any)?.responseURL ||
+    req?._redirectable?._currentUrl ||   // follow-redirects (most reliable)
+    req?.res?.responseUrl ||             // node http module fallback
+    req?.responseURL ||
     url
   return finalUrl
 }
@@ -63,12 +66,16 @@ function buildReviewUrl(productUrl: string, page: number, sortOrder: string): st
   }
 
   u.pathname = '/' + parts.join('/')
+
+  // Keep existing params (pid, lid) and layer in review-specific ones
+  u.searchParams.set('marketplace', 'FLIPKART')
   u.searchParams.set('sortOrder', sortOrder)
   u.searchParams.set('page', String(page))
-  u.searchParams.set('pageNumber', String(page))
   u.searchParams.set('certifiedBuyer', 'false')
   u.searchParams.set('aid', 'overall')
-  u.searchParams.set('rating', '')
+  // Remove params that can cause 404 when empty or redundant
+  u.searchParams.delete('rating')
+  u.searchParams.delete('pageNumber')
 
   return u.toString()
 }
@@ -249,10 +256,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     for (let page = 1; page <= numPages; page++) {
       const reviewUrl = buildReviewUrl(resolvedUrl, page, sortOrder)
 
-      const { data } = await axios.get(reviewUrl, {
-        headers: HEADERS,
-        timeout: 30000,
-      })
+      let data: string
+      try {
+        const resp = await axios.get(reviewUrl, { headers: HEADERS, timeout: 30000 })
+        data = resp.data
+      } catch (fetchErr: any) {
+        const status = fetchErr?.response?.status
+        if (status === 404) {
+          throw new Error(
+            `Flipkart returned 404 for the review URL. ` +
+            `Tried: ${reviewUrl} — Make sure the product URL is correct and contains /p/ in the path.`
+          )
+        }
+        throw fetchErr
+      }
 
       const pageReviews = parseReviews(data, reviewUrl)
       allReviews.push(...pageReviews)
