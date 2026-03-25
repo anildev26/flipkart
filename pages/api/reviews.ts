@@ -70,9 +70,12 @@ async function resolveUrl(startUrl: string): Promise<string> {
     }
   }
 
+  // DEBUG: surface the raw response so we can see what dl.flipkart.com returns
+  const statusCode = resp.status
+  const preview = html.slice(0, 600).replace(/\s+/g, ' ')
   throw new Error(
-    'Could not find the product URL inside the short link page. ' +
-    'Please open the link in your browser, copy the full product URL (it contains /p/ in the path), and paste that instead.'
+    `[DEBUG] HTTP ${statusCode} — no product URL found. ` +
+    `HTML preview: ${preview || '(empty body)'}`
   )
 }
 
