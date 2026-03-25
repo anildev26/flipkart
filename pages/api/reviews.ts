@@ -1,4 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
+import http from 'http'
+import https from 'https'
 import axios from 'axios'
 import * as cheerio from 'cheerio'
 
@@ -29,37 +31,62 @@ const HEADERS = {
   'Sec-Fetch-Site': 'none',
 }
 
-/** Follow redirects on short/affiliate links and return the final URL */
-async function resolveUrl(url: string): Promise<string> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 15000)
+/**
+ * Follow ONE redirect hop and return the Location header value,
+ * or null if the response is not a redirect.
+ * Uses Node's http/https directly so we read only headers (no body download).
+ */
+function getRedirectLocation(url: string): Promise<string | null> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url)
+    const lib = parsed.protocol === 'https:' ? https : http
 
-  try {
-    const response = await fetch(url, {
-      headers: HEADERS as Record<string, string>,
-      redirect: 'follow',
-      signal: controller.signal,
+    const req = lib.get(url, { headers: HEADERS, timeout: 8000 }, (res) => {
+      // Drain the body immediately so the socket is released
+      res.resume()
+      const { statusCode, headers } = res
+      if (statusCode && statusCode >= 300 && statusCode < 400 && headers.location) {
+        const loc = headers.location
+        resolve(Array.isArray(loc) ? loc[0] : loc)
+      } else {
+        resolve(null) // Final destination reached
+      }
     })
 
-    // response.url is always the final URL after all redirects
-    let finalUrl = response.url
+    req.on('error', reject)
+    req.on('timeout', () => {
+      req.destroy()
+      reject(new Error('URL resolution timed out after 8 s'))
+    })
+  })
+}
 
-    // Normalize mobile / app subdomains → www so review URLs work
-    finalUrl = finalUrl.replace(
-      /^https?:\/\/(m|dl)\.flipkart\.com/,
-      'https://www.flipkart.com'
-    )
+/** Follow redirects on short/affiliate links and return the final URL */
+async function resolveUrl(startUrl: string): Promise<string> {
+  let currentUrl = startUrl
 
-    if (!finalUrl.includes('flipkart.com')) {
-      throw new Error(
-        'Could not resolve the short URL. Please open it in your browser, copy the full Flipkart product URL, and paste that instead.'
-      )
-    }
-
-    return finalUrl
-  } finally {
-    clearTimeout(timer)
+  for (let i = 0; i < 10; i++) {
+    const location = await getRedirectLocation(currentUrl)
+    if (!location) break
+    // Handle relative Location headers
+    currentUrl = location.startsWith('http')
+      ? location
+      : new URL(location, currentUrl).toString()
   }
+
+  // Normalize mobile / app subdomains → www so review URLs work
+  currentUrl = currentUrl.replace(
+    /^https?:\/\/(m|dl)\.flipkart\.com/,
+    'https://www.flipkart.com'
+  )
+
+  if (!currentUrl.includes('flipkart.com')) {
+    throw new Error(
+      'Could not resolve the short URL. Please open the link in your browser, copy the full product URL, and paste that instead.'
+    )
+  }
+
+  return currentUrl
 }
 
 /**
