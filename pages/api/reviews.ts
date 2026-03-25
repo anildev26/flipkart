@@ -41,12 +41,18 @@ async function resolveUrl(startUrl: string): Promise<string> {
     validateStatus: () => true,
   })
 
+  if (resp.status === 404) {
+    throw new Error(
+      'This short URL is invalid or has expired. Please open the original link in your browser, copy the full product URL from the address bar (it will contain /p/ in the path), and paste that instead.'
+    )
+  }
+
   const html: string = typeof resp.data === 'string' ? resp.data : ''
 
   // Patterns to find the real Flipkart product URL inside the page
   const patterns: RegExp[] = [
     // JS: window.location = "...", location.href = "...", location.replace("...")
-    /(?:window\.location(?:\.href)?|location\.href|location\.replace\s*\()\s*[=\(]\s*["']((https?:\/\/[^"']+flipkart\.com[^"']+))["']/i,
+    /(?:window\.location(?:\.href)?|location\.href|location\.replace\s*\()\s*[=(]\s*["']((https?:\/\/[^"']+flipkart\.com[^"']+))["']/i,
     // meta refresh: <meta http-equiv="refresh" content="0; url=...">
     /content=["'][^"']*;\s*url=(https?:\/\/[^"'\s]+flipkart\.com[^"'\s]+)["']/i,
     // og:url
@@ -54,7 +60,7 @@ async function resolveUrl(startUrl: string): Promise<string> {
     /content=["'](https?:\/\/[^"']+flipkart\.com[^"']+)["'][^>]+property=["']og:url["']/i,
     // canonical link
     /rel=["']canonical["'][^>]+href=["'](https?:\/\/[^"']+flipkart\.com[^"']+)["']/i,
-    // any flipkart product URL containing /p/ anywhere in the HTML
+    // any product URL containing /p/ anywhere in the HTML
     /(https?:\/\/(?:www|m)\.flipkart\.com\/[^\s"'<>]+\/p\/[^\s"'<>&]+)/i,
   ]
 
@@ -70,12 +76,9 @@ async function resolveUrl(startUrl: string): Promise<string> {
     }
   }
 
-  // DEBUG: surface the raw response so we can see what dl.flipkart.com returns
-  const statusCode = resp.status
-  const preview = html.slice(0, 600).replace(/\s+/g, ' ')
   throw new Error(
-    `[DEBUG] HTTP ${statusCode} — no product URL found. ` +
-    `HTML preview: ${preview || '(empty body)'}`
+    'Could not find the product URL inside the short link page. ' +
+    'Please paste the full Flipkart product URL instead (it contains /p/ in the path).'
   )
 }
 
