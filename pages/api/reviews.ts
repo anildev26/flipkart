@@ -29,33 +29,51 @@ const HEADERS = {
   'Sec-Fetch-Site': 'none',
 }
 
-/** Follow redirects on short/affiliate links and return the final URL */
+/**
+ * dl.flipkart.com uses a JavaScript redirect, not an HTTP redirect.
+ * So we download the page HTML and extract the real product URL from it.
+ */
 async function resolveUrl(startUrl: string): Promise<string> {
-  // Use responseType:'stream' so axios returns as soon as response headers
-  // arrive — no body is downloaded. follow-redirects (axios's underlying
-  // redirect library) stores the final URL in req._currentUrl.
   const resp = await axios.get(startUrl, {
     headers: HEADERS,
-    maxRedirects: 15,
-    timeout: 25000,
+    maxRedirects: 5,
+    timeout: 20000,
     validateStatus: () => true,
-    responseType: 'stream',
   })
 
-  // Drain / close the stream immediately
-  try { resp.data?.destroy?.() } catch { /* ignore */ }
+  const html: string = typeof resp.data === 'string' ? resp.data : ''
 
-  // follow-redirects sets _currentUrl on the request object after each hop
-  const req = resp.request as Record<string, unknown>
-  let finalUrl = (req._currentUrl as string | undefined) ?? startUrl
+  // Patterns to find the real Flipkart product URL inside the page
+  const patterns: RegExp[] = [
+    // JS: window.location = "...", location.href = "...", location.replace("...")
+    /(?:window\.location(?:\.href)?|location\.href|location\.replace\s*\()\s*[=\(]\s*["']((https?:\/\/[^"']+flipkart\.com[^"']+))["']/i,
+    // meta refresh: <meta http-equiv="refresh" content="0; url=...">
+    /content=["'][^"']*;\s*url=(https?:\/\/[^"'\s]+flipkart\.com[^"'\s]+)["']/i,
+    // og:url
+    /property=["']og:url["'][^>]+content=["'](https?:\/\/[^"']+flipkart\.com[^"']+)["']/i,
+    /content=["'](https?:\/\/[^"']+flipkart\.com[^"']+)["'][^>]+property=["']og:url["']/i,
+    // canonical link
+    /rel=["']canonical["'][^>]+href=["'](https?:\/\/[^"']+flipkart\.com[^"']+)["']/i,
+    // any flipkart product URL containing /p/ anywhere in the HTML
+    /(https?:\/\/(?:www|m)\.flipkart\.com\/[^\s"'<>]+\/p\/[^\s"'<>&]+)/i,
+  ]
 
-  // Normalize mobile / CDN subdomains → www so review URLs work
-  finalUrl = finalUrl.replace(
-    /^https?:\/\/(m|dl)\.flipkart\.com/,
-    'https://www.flipkart.com'
+  for (const pattern of patterns) {
+    const m = html.match(pattern)
+    if (m) {
+      const url = (m[1] || m[0]).trim()
+      if (url.includes('flipkart.com')) {
+        return url
+          .replace(/^https?:\/\/m\.flipkart\.com/, 'https://www.flipkart.com')
+          .replace(/&amp;/g, '&')
+      }
+    }
+  }
+
+  throw new Error(
+    'Could not find the product URL inside the short link page. ' +
+    'Please open the link in your browser, copy the full product URL (it contains /p/ in the path), and paste that instead.'
   )
-
-  return finalUrl
 }
 
 /**
