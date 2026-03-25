@@ -31,27 +31,35 @@ const HEADERS = {
 
 /** Follow redirects on short/affiliate links and return the final URL */
 async function resolveUrl(url: string): Promise<string> {
-  let finalUrl = url
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 15000)
 
-  await axios.get(url, {
-    headers: HEADERS,
-    maxRedirects: 10,
-    timeout: 20000,
-    validateStatus: () => true,
-    // follow-redirects exposes this hook; called just before each redirect
-    beforeRedirect(options: any) {
-      finalUrl = `${options.protocol}//${options.host}${options.path}`
-    },
-  } as any)
+  try {
+    const response = await fetch(url, {
+      headers: HEADERS as Record<string, string>,
+      redirect: 'follow',
+      signal: controller.signal,
+    })
 
-  // If still on the short-URL domain, resolution failed — surface a clear error
-  if (finalUrl.includes('dl.flipkart.com') || finalUrl.includes('/s/')) {
-    throw new Error(
-      'Could not resolve the short URL. Please open it in your browser, copy the full Flipkart product URL (it should contain /p/ in the path), and paste that instead.'
+    // response.url is always the final URL after all redirects
+    let finalUrl = response.url
+
+    // Normalize mobile / app subdomains → www so review URLs work
+    finalUrl = finalUrl.replace(
+      /^https?:\/\/(m|dl)\.flipkart\.com/,
+      'https://www.flipkart.com'
     )
-  }
 
-  return finalUrl
+    if (!finalUrl.includes('flipkart.com')) {
+      throw new Error(
+        'Could not resolve the short URL. Please open it in your browser, copy the full Flipkart product URL, and paste that instead.'
+      )
+    }
+
+    return finalUrl
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 /**
