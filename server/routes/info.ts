@@ -39,7 +39,7 @@ router.post('/', async (req: Request, res: Response) => {
         dumpSingleJson: true,
         noWarnings: true,
         noPlaylist: true,
-        socketTimeout: '15',
+        socketTimeout: 15,
       }) as Promise<any>,
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Request timed out. Please try again.')), 45_000)
