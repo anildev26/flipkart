@@ -45,7 +45,7 @@ router.post('/', async (req: Request, res: Response) => {
         addHeader: [
           'User-Agent:Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
         ],
-      }) as Promise<any>,
+      } as any) as Promise<any>,
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Request timed out. Please try again.')), 45_000)
       ),
