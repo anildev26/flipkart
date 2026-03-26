@@ -3,6 +3,7 @@ import cors from 'cors'
 import infoRouter from './routes/info'
 import storiesRouter from './routes/stories'
 import proxyRouter from './routes/proxy'
+import downloadRouter from './routes/download'
 import { startKeepAlive } from './keepAlive'
 
 const app = express()
@@ -18,6 +19,7 @@ app.use(express.json())
 app.get('/health', (_req, res) => res.json({ ok: true, ts: Date.now() }))
 
 app.use('/api/info', infoRouter)
+app.use('/api/download', downloadRouter)
 app.use('/api/stories', storiesRouter)
 app.use('/api/proxy', proxyRouter)
 

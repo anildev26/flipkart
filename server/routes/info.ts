@@ -3,9 +3,7 @@ import youtubeDl from 'youtube-dl-exec'
 
 export type VideoFormat = {
   label: string
-  url: string
-  ext: string
-  filesize?: number
+  quality: string
 }
 
 export type VideoInfo = {
@@ -13,8 +11,10 @@ export type VideoInfo = {
   thumbnail: string
   duration: number
   platform: string
-  formats: VideoFormat[]
+  qualities: VideoFormat[]
 }
+
+const STANDARD_HEIGHTS = [2160, 1440, 1080, 720, 480, 360]
 
 function detectPlatform(url: string): string {
   if (url.includes('youtube.com') || url.includes('youtu.be')) return 'YouTube'
@@ -33,61 +33,50 @@ router.post('/', async (req: Request, res: Response) => {
   }
 
   try {
-    const info = await youtubeDl(url, {
-      dumpSingleJson: true,
-      noWarnings: true,
-      noPlaylist: true,
-    }) as any
+    // Race yt-dlp against a 45s timeout
+    const info = await Promise.race([
+      youtubeDl(url, {
+        dumpSingleJson: true,
+        noWarnings: true,
+        noPlaylist: true,
+        socketTimeout: '15',
+      }) as Promise<any>,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Request timed out. Please try again.')), 45_000)
+      ),
+    ])
 
-    const formats: VideoFormat[] = []
-
-    const combined = ((info.formats as any[]) || [])
-      .filter(f => f.vcodec !== 'none' && f.acodec !== 'none' && f.url)
-      .sort((a, b) => (b.height || 0) - (a.height || 0))
-
-    const seenHeights = new Set<number>()
-    for (const f of combined) {
-      if (f.height && !seenHeights.has(f.height)) {
-        seenHeights.add(f.height)
-        formats.push({
-          label: `${f.height}p`,
-          url: f.url,
-          ext: f.ext || 'mp4',
-          filesize: f.filesize,
-        })
+    // Collect available heights from all video formats
+    const availableHeights = new Set<number>()
+    for (const f of (info.formats as any[]) || []) {
+      if (f.height && f.vcodec && f.vcodec !== 'none') {
+        availableHeights.add(f.height)
       }
     }
 
-    // YouTube DASH-only fallback: ask yt-dlp for best merged URL
-    if (formats.length === 0) {
-      const bestUrl = await youtubeDl(url, {
-        format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        getUrl: true,
-        noWarnings: true,
-        noPlaylist: true,
-      }) as string | string[]
+    // Map to standard quality labels (only include qualities the video actually has)
+    const qualities: VideoFormat[] = STANDARD_HEIGHTS
+      .filter(h => [...availableHeights].some(fh => fh >= h))
+      .map(h => ({ label: `${h}p`, quality: `${h}p` }))
 
-      const urlStr = Array.isArray(bestUrl) ? bestUrl[0] : bestUrl
-      if (urlStr?.trim()) {
-        formats.push({ label: 'Best Quality', url: urlStr.trim(), ext: 'mp4' })
-      }
+    // Fallback if no formats found
+    if (qualities.length === 0) {
+      qualities.push({ label: 'Best', quality: 'best' })
     }
 
     return res.json({
       title: info.title,
       thumbnail: info.thumbnail,
-      duration: info.duration,
+      duration: info.duration ?? 0,
       platform: detectPlatform(url),
-      formats,
-    } as VideoInfo)
+      qualities,
+    } satisfies VideoInfo)
   } catch (err: any) {
     const msg: string = err?.stderr || err?.message || ''
-    const isPrivate = /private|login|sign in/i.test(msg)
-    return res.status(500).json({
-      error: isPrivate
-        ? 'This video is private or requires login.'
-        : 'Could not fetch video. Check the URL and try again.',
-    })
+    if (/private|login|sign in/i.test(msg)) {
+      return res.status(500).json({ error: 'This video is private or requires login.' })
+    }
+    return res.status(500).json({ error: err.message || 'Could not fetch video info.' })
   }
 })
 
