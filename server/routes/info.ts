@@ -1,11 +1,7 @@
 import { Router, Request, Response } from 'express'
-import youtubeDl from 'youtube-dl-exec'
+import { ytdlpInfo } from '../ytdlp'
 
-export type VideoFormat = {
-  label: string
-  quality: string
-}
-
+export type VideoFormat = { label: string; quality: string }
 export type VideoInfo = {
   title: string
   thumbnail: string
@@ -33,25 +29,13 @@ router.post('/', async (req: Request, res: Response) => {
   }
 
   try {
-    // Race yt-dlp against a 45s timeout
     const info = await Promise.race([
-      youtubeDl(url, {
-        dumpSingleJson: true,
-        noWarnings: true,
-        noPlaylist: true,
-        socketTimeout: 15,
-        // Use Android client — bypasses YouTube bot detection without needing cookies
-        extractorArgs: 'youtube:player_client=android,web',
-        addHeader: [
-          'User-Agent:Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
-        ],
-      } as any) as Promise<any>,
+      ytdlpInfo(url),
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Request timed out. Please try again.')), 45_000)
+        setTimeout(() => reject(new Error('Request timed out. Please try again.')), 50_000)
       ),
     ])
 
-    // Collect available heights from all video formats
     const availableHeights = new Set<number>()
     for (const f of (info.formats as any[]) || []) {
       if (f.height && f.vcodec && f.vcodec !== 'none') {
@@ -59,12 +43,10 @@ router.post('/', async (req: Request, res: Response) => {
       }
     }
 
-    // Map to standard quality labels (only include qualities the video actually has)
     const qualities: VideoFormat[] = STANDARD_HEIGHTS
       .filter(h => [...availableHeights].some(fh => fh >= h))
       .map(h => ({ label: `${h}p`, quality: `${h}p` }))
 
-    // Fallback if no formats found
     if (qualities.length === 0) {
       qualities.push({ label: 'Best', quality: 'best' })
     }
@@ -77,12 +59,12 @@ router.post('/', async (req: Request, res: Response) => {
       qualities,
     } satisfies VideoInfo)
   } catch (err: any) {
-    const msg: string = err?.stderr || err?.message || ''
-    // Only show "private" if it's actually private, not bot-detection
+    const msg: string = err?.message || ''
+    console.error('[info] error:', msg.slice(0, 300))
     if (/video is private/i.test(msg)) {
       return res.status(500).json({ error: 'This video is private.' })
     }
-    return res.status(500).json({ error: 'Could not fetch video. The URL may be unsupported or region-blocked.' })
+    return res.status(500).json({ error: 'Could not fetch video info. ' + msg.slice(0, 120) })
   }
 })
 

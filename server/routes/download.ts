@@ -1,9 +1,6 @@
 import { Router, Request, Response } from 'express'
-import youtubeDl from 'youtube-dl-exec'
-import ffmpegPath from 'ffmpeg-static'
+import { ytdlpStream } from '../ytdlp'
 
-// yt-dlp format strings per quality label
-// bestvideo+bestaudio = yt-dlp merges them via ffmpeg into a single mp4
 const FORMAT_MAP: Record<string, string> = {
   '2160p': 'bestvideo[height<=2160][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=2160]+bestaudio/best',
   '1440p': 'bestvideo[height<=1440][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1440]+bestaudio/best',
@@ -16,12 +13,8 @@ const FORMAT_MAP: Record<string, string> = {
 
 const router = Router()
 
-// GET /api/download?url=...&quality=720p&filename=video.mp4
-// Streams yt-dlp output (with ffmpeg merge) directly to the browser.
-// Browser shows its native download progress bar.
 router.get('/', (req: Request, res: Response) => {
   const { url, quality = 'best', filename = 'video.mp4' } = req.query
-
   if (!url || typeof url !== 'string') {
     return res.status(400).json({ error: 'url param is required' })
   }
@@ -31,36 +24,21 @@ router.get('/', (req: Request, res: Response) => {
   res.setHeader('Content-Type', 'video/mp4')
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
 
-  // .raw() returns a ChildProcess — stdout is the video stream
-  const proc = (youtubeDl as any).raw(url, {
-    format,
-    output: '-',
-    noWarnings: true,
-    noPlaylist: true,
-    extractorArgs: 'youtube:player_client=android,web',
-    addHeader: [
-      'User-Agent:Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
-    ],
-    ...(ffmpegPath ? { ffmpegLocation: ffmpegPath } : {}),
-  })
+  const proc = ytdlpStream(url, format)
 
-  proc.stdout?.pipe(res)
+  proc.stdout.pipe(res)
 
-  proc.stderr?.on('data', (chunk: Buffer) => {
-    // Log progress lines from yt-dlp for server-side visibility
+  proc.stderr.on('data', (chunk: Buffer) => {
     const line = chunk.toString().trim()
     if (line) console.log('[yt-dlp]', line.slice(0, 120))
   })
 
   proc.on('error', (err: Error) => {
-    console.error('[download] error:', err.message)
-    if (!res.headersSent) {
-      res.status(500).json({ error: 'Download failed. Try again.' })
-    }
+    console.error('[download] spawn error:', err.message)
+    if (!res.headersSent) res.status(500).json({ error: 'Download failed.' })
   })
 
-  // Kill yt-dlp if client disconnects early
-  req.on('close', () => proc.kill?.())
+  req.on('close', () => proc.kill())
 })
 
 export default router
