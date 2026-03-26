@@ -146,6 +146,16 @@ export default function VideoDownloader() {
                   </span>
                 )}
               </div>
+              {/* Method badge — top right */}
+              <div className="absolute top-3 right-3">
+                <span className={`text-[10px] font-semibold px-2 py-1 rounded-md ${
+                  info.usedCookies
+                    ? 'bg-yellow-500/80 text-black'
+                    : 'bg-green-500/80 text-black'
+                }`}>
+                  {info.usedCookies ? '🍪 Account Cookies' : '✓ tv_embedded'}
+                </span>
+              </div>
             </div>
           )}
 
