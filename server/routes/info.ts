@@ -64,7 +64,10 @@ router.post('/', async (req: Request, res: Response) => {
     if (/video is private/i.test(msg)) {
       return res.status(500).json({ error: 'This video is private.' })
     }
-    return res.status(500).json({ error: 'Could not fetch video info. ' + msg.slice(0, 120) })
+    if (/sign in|bot|confirm your age|login required/i.test(msg)) {
+      return res.status(500).json({ error: 'YouTube is blocking this request. The server needs YouTube cookies configured.' })
+    }
+    return res.status(500).json({ error: 'Could not fetch video. ' + msg.slice(0, 150) })
   }
 })
 
