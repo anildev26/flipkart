@@ -1,9 +1,9 @@
-import type { NextApiRequest, NextApiResponse } from 'next'
+import { Router, Request, Response } from 'express'
 import axios from 'axios'
 
-// Streams a remote video URL through our server so the browser
-// saves it with a proper filename instead of a CDN hash URL.
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+const router = Router()
+
+router.get('/', async (req: Request, res: Response) => {
   const { url, filename } = req.query
   if (!url || typeof url !== 'string') {
     return res.status(400).json({ error: 'url param is required' })
@@ -37,4 +37,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       res.status(502).json({ error: 'Failed to stream video.' })
     }
   }
-}
+})
+
+export default router

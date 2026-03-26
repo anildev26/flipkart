@@ -1,4 +1,4 @@
-import type { NextApiRequest, NextApiResponse } from 'next'
+import { Router, Request, Response } from 'express'
 import youtubeDl from 'youtube-dl-exec'
 
 export type VideoFormat = {
@@ -24,9 +24,9 @@ function detectPlatform(url: string): string {
   return 'Unknown'
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'POST') return res.status(405).end()
+const router = Router()
 
+router.post('/', async (req: Request, res: Response) => {
   const { url } = req.body
   if (!url || typeof url !== 'string') {
     return res.status(400).json({ error: 'URL is required' })
@@ -41,7 +41,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const formats: VideoFormat[] = []
 
-    // Combined (audio+video) formats sorted best first
     const combined = ((info.formats as any[]) || [])
       .filter(f => f.vcodec !== 'none' && f.acodec !== 'none' && f.url)
       .sort((a, b) => (b.height || 0) - (a.height || 0))
@@ -59,7 +58,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    // YouTube / DASH-only: fall back to yt-dlp best merged URL
+    // YouTube DASH-only fallback: ask yt-dlp for best merged URL
     if (formats.length === 0) {
       const bestUrl = await youtubeDl(url, {
         format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
@@ -80,14 +79,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       duration: info.duration,
       platform: detectPlatform(url),
       formats,
-    } satisfies VideoInfo)
+    } as VideoInfo)
   } catch (err: any) {
-    const msg: string = err?.stderr || err?.message || 'Failed to fetch video info'
-    const isPrivate = msg.includes('Private') || msg.includes('login') || msg.includes('private')
+    const msg: string = err?.stderr || err?.message || ''
+    const isPrivate = /private|login|sign in/i.test(msg)
     return res.status(500).json({
       error: isPrivate
         ? 'This video is private or requires login.'
         : 'Could not fetch video. Check the URL and try again.',
     })
   }
-}
+})
+
+export default router

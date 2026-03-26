@@ -1,4 +1,4 @@
-import type { NextApiRequest, NextApiResponse } from 'next'
+import { Router, Request, Response } from 'express'
 import youtubeDl from 'youtube-dl-exec'
 import { writeFileSync, unlinkSync } from 'fs'
 import { tmpdir } from 'os'
@@ -15,18 +15,20 @@ export type Story = {
 
 function buildCookieFile(sessionId: string): string {
   const path = join(tmpdir(), `ig_${randomBytes(8).toString('hex')}.txt`)
-  const content = [
-    '# Netscape HTTP Cookie File',
-    `# Generated for yt-dlp`,
-    `.instagram.com\tTRUE\t/\tTRUE\t2147483647\tsessionid\t${sessionId.trim()}`,
-  ].join('\n')
-  writeFileSync(path, content, 'utf-8')
+  writeFileSync(
+    path,
+    [
+      '# Netscape HTTP Cookie File',
+      `.instagram.com\tTRUE\t/\tTRUE\t2147483647\tsessionid\t${sessionId.trim()}`,
+    ].join('\n'),
+    'utf-8'
+  )
   return path
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'POST') return res.status(405).end()
+const router = Router()
 
+router.post('/', async (req: Request, res: Response) => {
   const { username, sessionId } = req.body
   if (!username || typeof username !== 'string') {
     return res.status(400).json({ error: 'Instagram username is required' })
@@ -47,17 +49,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }) as any
 
     const stories: Story[] = []
-
     const entries: any[] = info.entries ?? (info.url ? [info] : [])
 
     for (const entry of entries) {
-      const videoUrl = entry.url
-        ?? entry.formats?.slice(-1)[0]?.url
-
+      const videoUrl = entry.url ?? entry.formats?.slice(-1)[0]?.url
       if (!videoUrl) continue
-
       stories.push({
-        id: entry.id ?? String(Math.random()),
+        id: entry.id ?? randomBytes(4).toString('hex'),
         thumbnail: entry.thumbnail ?? '',
         videoUrl,
         timestamp: entry.timestamp,
@@ -69,17 +67,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   } catch (err: any) {
     const msg: string = err?.stderr || err?.message || ''
     let error = 'Failed to fetch stories. Check the username and try again.'
-    if (msg.includes('login') || msg.includes('cookie') || msg.includes('auth')) {
+    if (/login|cookie|auth|session/i.test(msg)) {
       error = 'Session ID is invalid or expired. Please get a fresh one from your browser.'
-    } else if (msg.includes('Private') || msg.includes('private')) {
+    } else if (/private/i.test(msg)) {
       error = 'This account is private.'
-    } else if (msg.includes('not found') || msg.includes('404')) {
+    } else if (/not found|404/i.test(msg)) {
       error = 'Account not found. Check the username.'
-    } else if (msg.includes('No stories') || msg.includes('no stories')) {
-      error = 'No active stories found for this account.'
     }
     return res.status(500).json({ error })
   } finally {
     try { unlinkSync(cookiePath) } catch {}
   }
-}
+})
+
+export default router
