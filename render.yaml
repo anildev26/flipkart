@@ -2,12 +2,12 @@ services:
   - type: web
     name: vidsnap-backend
     runtime: node
-    buildCommand: cd server && npm install --ignore-scripts && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && chmod a+rx /usr/local/bin/yt-dlp && npm run build
+    buildCommand: cd server && npm install --ignore-scripts && mkdir -p bin && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o bin/yt-dlp && chmod a+rx bin/yt-dlp && npm run build
     startCommand: cd server && node dist/index.js
     envVars:
       - key: NODE_ENV
         value: production
       - key: YTDL_PATH
-        value: /usr/local/bin/yt-dlp
+        value: /opt/render/project/src/server/bin/yt-dlp
       - key: FRONTEND_URL
         sync: false
