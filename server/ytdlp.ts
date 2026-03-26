@@ -24,26 +24,29 @@ const BASE = [
   '--no-warnings',
   '--no-playlist',
   '--no-check-certificates',
-  '--add-header', 'User-Agent:Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
+  '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
   ...FFMPEG_ARGS,
 ]
 
+// Attempts ordered: best first (most capable), fallback last
 const ATTEMPTS: Array<{ label: string; args: string[] }> = [
-  {
-    label: 'tv_embedded (no cookies)',
-    args: [...BASE, '--extractor-args', 'youtube:player_client=tv_embedded,android_vr,mweb'],
-  },
+  // 1. web + cookies — full access, handles everything
+  ...(cookiesFile ? [{
+    label: 'web + cookies',
+    args: [...BASE, '--cookies', cookiesFile],
+  }] : []),
+  // 2. tv_embedded + cookies — lighter client with auth
   ...(cookiesFile ? [{
     label: 'tv_embedded + cookies',
-    args: [...BASE, '--extractor-args', 'youtube:player_client=tv_embedded,android_vr,mweb', '--cookies', cookiesFile],
+    args: [...BASE, '--extractor-args', 'youtube:player_client=tv_embedded', '--cookies', cookiesFile],
   }] : []),
-  ...(cookiesFile ? [{
-    label: 'web + cookies (full access)',
-    args: [...BASE, '--extractor-args', 'youtube:player_client=web,android', '--cookies', cookiesFile],
-  }] : []),
+  // 3. tv_embedded no cookies — last resort, no auth needed
+  {
+    label: 'tv_embedded (no cookies)',
+    args: [...BASE, '--extractor-args', 'youtube:player_client=tv_embedded,android_vr'],
+  },
 ]
 
-// Per-attempt timeout — kills yt-dlp if it hangs so next attempt can run
 function runYtdlp(args: string[], timeoutMs = 25_000): Promise<string> {
   return new Promise((resolve, reject) => {
     let stdout = ''
@@ -70,20 +73,20 @@ function runYtdlp(args: string[], timeoutMs = 25_000): Promise<string> {
 }
 
 export async function ytdlpInfo(url: string): Promise<{ data: any; usedCookies: boolean; method: string }> {
-  const infoArgs = ['--dump-single-json', '--format', 'bestvideo+bestaudio/best', '--socket-timeout', '15', url]
+  // No -f flag here — format validation causes "not available" errors on some videos
+  const infoArgs = ['--dump-single-json', '--socket-timeout', '15', url]
   let lastErr: Error = new Error('All attempts failed')
 
   for (const attempt of ATTEMPTS) {
     try {
       console.log(`[yt-dlp] Trying: ${attempt.label}`)
       const out = await runYtdlp([...attempt.args, ...infoArgs])
-      console.log(`[yt-dlp] SUCCESS via: ${attempt.label}`)
+      console.log(`[yt-dlp] SUCCESS: ${attempt.label}`)
       const usedCookies = attempt.label.includes('cookies')
       return { data: JSON.parse(out), usedCookies, method: attempt.label }
     } catch (err: any) {
       console.warn(`[yt-dlp] FAILED (${attempt.label}): ${err.message.slice(0, 150)}`)
       lastErr = err
-      // always continue to next attempt
     }
   }
 
@@ -92,8 +95,8 @@ export async function ytdlpInfo(url: string): Promise<{ data: any; usedCookies: 
 
 export function ytdlpStream(url: string, format: string, useCookies = false) {
   const args = useCookies && cookiesFile
-    ? [...BASE, '--extractor-args', 'youtube:player_client=web,android', '--cookies', cookiesFile]
-    : [...BASE, '--extractor-args', 'youtube:player_client=tv_embedded,android_vr,mweb']
+    ? [...BASE, '--cookies', cookiesFile]
+    : [...BASE, '--extractor-args', 'youtube:player_client=tv_embedded,android_vr']
 
   console.log(`[yt-dlp] stream (${useCookies ? 'web+cookies' : 'tv_embedded'}) → ${url}`)
   return spawn(YTDLP, [...args, '-f', format, '-o', '-', url])
