@@ -13,31 +13,38 @@ let cookiesFile: string | null = null
 if (process.env.YOUTUBE_COOKIES) {
   cookiesFile = join(tmpdir(), 'yt_cookies.txt')
   writeFileSync(cookiesFile, process.env.YOUTUBE_COOKIES, 'utf-8')
-  console.log('[yt-dlp] YouTube cookies loaded — will use as fallback')
+  console.log('[yt-dlp] YouTube cookies loaded')
 } else {
-  console.log('[yt-dlp] No YOUTUBE_COOKIES set — tv_embedded only')
+  console.log('[yt-dlp] No YOUTUBE_COOKIES set')
 }
 
 const FFMPEG_ARGS = ffmpegPath ? ['--ffmpeg-location', ffmpegPath] : []
 
-function buildArgs(extraArgs: string[]): string[] {
-  return [
-    '--no-warnings',
-    '--no-playlist',
-    '--no-check-certificates',
-    '--add-header', 'User-Agent:Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
-    ...FFMPEG_ARGS,
-    ...extraArgs,
-  ]
-}
+const BASE = [
+  '--no-warnings',
+  '--no-playlist',
+  '--no-check-certificates',
+  '--add-header', 'User-Agent:Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
+  ...FFMPEG_ARGS,
+]
 
-// tv_embedded has no bot check; android_vr + mweb as additional fallback clients
-const CLIENT_ARGS = ['--extractor-args', 'youtube:player_client=tv_embedded,android_vr,mweb']
-
-const ARGS_NO_COOKIES = buildArgs(CLIENT_ARGS)
-const ARGS_WITH_COOKIES = cookiesFile
-  ? buildArgs([...CLIENT_ARGS, '--cookies', cookiesFile])
-  : null
+const ATTEMPTS: Array<{ label: string; args: string[] }> = [
+  // 1. tv_embedded — no bot check, works for most public videos
+  {
+    label: 'tv_embedded (no cookies)',
+    args: [...BASE, '--extractor-args', 'youtube:player_client=tv_embedded,android_vr,mweb'],
+  },
+  // 2. tv_embedded + cookies — for bot-gated videos
+  ...(cookiesFile ? [{
+    label: 'tv_embedded + cookies',
+    args: [...BASE, '--extractor-args', 'youtube:player_client=tv_embedded,android_vr,mweb', '--cookies', cookiesFile],
+  }] : []),
+  // 3. web + cookies — full access, handles embedding-disabled / age-restricted videos
+  ...(cookiesFile ? [{
+    label: 'web + cookies (full access)',
+    args: [...BASE, '--extractor-args', 'youtube:player_client=web,android', '--cookies', cookiesFile],
+  }] : []),
+]
 
 function runYtdlp(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -54,37 +61,33 @@ function runYtdlp(args: string[]): Promise<string> {
   })
 }
 
-const BOT_DETECTED = /sign in|bot|confirm your age|login required/i
-
-export async function ytdlpInfo(url: string): Promise<{ data: any; usedCookies: boolean }> {
+// Retry on any yt-dlp error (bot, format unavailable, etc.) — stop only on success
+export async function ytdlpInfo(url: string): Promise<{ data: any; usedCookies: boolean; method: string }> {
   const infoArgs = ['--dump-single-json', '--socket-timeout', '15', url]
+  let lastErr: Error = new Error('All attempts failed')
 
-  // Attempt 1 — no cookies
-  try {
-    console.log(`[yt-dlp] Attempt 1: tv_embedded (no cookies) → ${url}`)
-    const out = await runYtdlp([...ARGS_NO_COOKIES, ...infoArgs])
-    console.log('[yt-dlp] Attempt 1 SUCCESS')
-    return { data: JSON.parse(out), usedCookies: false }
-  } catch (err: any) {
-    console.warn('[yt-dlp] Attempt 1 failed:', err.message.slice(0, 150))
-    if (!BOT_DETECTED.test(err.message) || !ARGS_WITH_COOKIES) throw err
+  for (const attempt of ATTEMPTS) {
+    try {
+      console.log(`[yt-dlp] Trying: ${attempt.label} → ${url}`)
+      const out = await runYtdlp([...attempt.args, ...infoArgs])
+      console.log(`[yt-dlp] SUCCESS: ${attempt.label}`)
+      const usedCookies = attempt.label.includes('cookies')
+      return { data: JSON.parse(out), usedCookies, method: attempt.label }
+    } catch (err: any) {
+      console.warn(`[yt-dlp] FAILED (${attempt.label}): ${err.message.slice(0, 150)}`)
+      lastErr = err
+    }
   }
 
-  // Attempt 2 — cookies fallback
-  console.log('[yt-dlp] Attempt 2: tv_embedded + cookies')
-  try {
-    const out = await runYtdlp([...ARGS_WITH_COOKIES!, ...infoArgs])
-    console.log('[yt-dlp] Attempt 2 SUCCESS (cookies worked)')
-    return { data: JSON.parse(out), usedCookies: true }
-  } catch (err: any) {
-    console.error('[yt-dlp] Attempt 2 failed:', err.message.slice(0, 150))
-    throw err
-  }
+  throw lastErr
 }
 
 export function ytdlpStream(url: string, format: string, useCookies = false) {
-  const base = (useCookies && ARGS_WITH_COOKIES) ? ARGS_WITH_COOKIES : ARGS_NO_COOKIES
-  const args = [...base, '-f', format, '-o', '-', url]
-  console.log(`[yt-dlp] stream: ${useCookies ? 'with cookies' : 'no cookies'} → ${url}`)
-  return spawn(YTDLP, args)
+  // Pick the most capable args that match what worked during info fetch
+  const args = useCookies && cookiesFile
+    ? [...BASE, '--extractor-args', 'youtube:player_client=web,android', '--cookies', cookiesFile]
+    : [...BASE, '--extractor-args', 'youtube:player_client=tv_embedded,android_vr,mweb']
+
+  console.log(`[yt-dlp] stream (${useCookies ? 'web+cookies' : 'tv_embedded'}) → ${url}`)
+  return spawn(YTDLP, [...args, '-f', format, '-o', '-', url])
 }

@@ -10,6 +10,7 @@ type VideoInfo = {
   platform: string
   qualities: Quality[]
   usedCookies: boolean
+  method: string
 }
 
 const PLATFORM_COLORS: Record<string, string> = {
@@ -153,7 +154,7 @@ export default function VideoDownloader() {
                     ? 'bg-yellow-500/80 text-black'
                     : 'bg-green-500/80 text-black'
                 }`}>
-                  {info.usedCookies ? '🍪 Account Cookies' : '✓ tv_embedded'}
+                  {info.usedCookies ? '🍪' : '✓'} {info.method}
                 </span>
               </div>
             </div>
