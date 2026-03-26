@@ -63,7 +63,8 @@ function runYtdlp(args: string[]): Promise<string> {
 
 // Retry on any yt-dlp error (bot, format unavailable, etc.) — stop only on success
 export async function ytdlpInfo(url: string): Promise<{ data: any; usedCookies: boolean; method: string }> {
-  const infoArgs = ['--dump-single-json', '--socket-timeout', '15', url]
+  // -f best prevents "format not available" when client has limited formats
+  const infoArgs = ['--dump-single-json', '--format', 'bestvideo+bestaudio/best', '--socket-timeout', '15', url]
   let lastErr: Error = new Error('All attempts failed')
 
   for (const attempt of ATTEMPTS) {
@@ -74,6 +75,7 @@ export async function ytdlpInfo(url: string): Promise<{ data: any; usedCookies: 
       const usedCookies = attempt.label.includes('cookies')
       return { data: JSON.parse(out), usedCookies, method: attempt.label }
     } catch (err: any) {
+      // Always try next attempt regardless of error type
       console.warn(`[yt-dlp] FAILED (${attempt.label}): ${err.message.slice(0, 150)}`)
       lastErr = err
     }
