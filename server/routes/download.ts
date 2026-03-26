@@ -2,13 +2,13 @@ import { Router, Request, Response } from 'express'
 import { ytdlpStream } from '../ytdlp'
 
 const FORMAT_MAP: Record<string, string> = {
-  '2160p': 'bestvideo[height<=2160][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=2160]+bestaudio/best',
-  '1440p': 'bestvideo[height<=1440][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1440]+bestaudio/best',
-  '1080p': 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best',
-  '720p':  'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best',
-  '480p':  'bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/best',
-  '360p':  'bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=360]+bestaudio/best',
-  'best':  'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+  '2160p': 'bestvideo[height<=2160]+bestaudio/best[height<=2160]/best',
+  '1440p': 'bestvideo[height<=1440]+bestaudio/best[height<=1440]/best',
+  '1080p': 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
+  '720p':  'bestvideo[height<=720]+bestaudio/best[height<=720]/best',
+  '480p':  'bestvideo[height<=480]+bestaudio/best[height<=480]/best',
+  '360p':  'bestvideo[height<=360]+bestaudio/best[height<=360]/best',
+  'best':  'bestvideo+bestaudio/best',
 }
 
 const router = Router()

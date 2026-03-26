@@ -9,14 +9,13 @@ const YTDLP =
   process.env.YTDL_PATH ||
   path.join(__dirname, '../bin/yt-dlp')
 
-// Write YOUTUBE_COOKIES env var to a temp file once on startup
 let cookiesFile: string | null = null
 if (process.env.YOUTUBE_COOKIES) {
   cookiesFile = join(tmpdir(), 'yt_cookies.txt')
   writeFileSync(cookiesFile, process.env.YOUTUBE_COOKIES, 'utf-8')
-  console.log('[yt-dlp] YouTube cookies loaded from env — will use as fallback')
+  console.log('[yt-dlp] YouTube cookies loaded — will use as fallback')
 } else {
-  console.log('[yt-dlp] No YOUTUBE_COOKIES set — will use tv_embedded client only')
+  console.log('[yt-dlp] No YOUTUBE_COOKIES set — tv_embedded only')
 }
 
 const FFMPEG_ARGS = ffmpegPath ? ['--ffmpeg-location', ffmpegPath] : []
@@ -32,17 +31,12 @@ function buildArgs(extraArgs: string[]): string[] {
   ]
 }
 
-// Attempt 1: tv_embedded client (no cookies needed)
-const ARGS_NO_COOKIES = buildArgs([
-  '--extractor-args', 'youtube:player_client=tv_embedded,android_vr',
-])
+// tv_embedded has no bot check; android_vr + mweb as additional fallback clients
+const CLIENT_ARGS = ['--extractor-args', 'youtube:player_client=tv_embedded,android_vr,mweb']
 
-// Attempt 2: cookies (fallback if bot detection still fires)
+const ARGS_NO_COOKIES = buildArgs(CLIENT_ARGS)
 const ARGS_WITH_COOKIES = cookiesFile
-  ? buildArgs([
-      '--extractor-args', 'youtube:player_client=tv_embedded,android_vr',
-      '--cookies', cookiesFile,
-    ])
+  ? buildArgs([...CLIENT_ARGS, '--cookies', cookiesFile])
   : null
 
 function runYtdlp(args: string[]): Promise<string> {
@@ -65,25 +59,25 @@ const BOT_DETECTED = /sign in|bot|confirm your age|login required/i
 export async function ytdlpInfo(url: string): Promise<{ data: any; usedCookies: boolean }> {
   const infoArgs = ['--dump-single-json', '--socket-timeout', '15', url]
 
-  // Attempt 1 — tv_embedded, no cookies
+  // Attempt 1 — no cookies
   try {
     console.log(`[yt-dlp] Attempt 1: tv_embedded (no cookies) → ${url}`)
     const out = await runYtdlp([...ARGS_NO_COOKIES, ...infoArgs])
     console.log('[yt-dlp] Attempt 1 SUCCESS')
     return { data: JSON.parse(out), usedCookies: false }
   } catch (err: any) {
-    console.warn('[yt-dlp] Attempt 1 failed:', err.message.slice(0, 120))
+    console.warn('[yt-dlp] Attempt 1 failed:', err.message.slice(0, 150))
     if (!BOT_DETECTED.test(err.message) || !ARGS_WITH_COOKIES) throw err
   }
 
   // Attempt 2 — cookies fallback
-  console.log('[yt-dlp] Attempt 2: tv_embedded + cookies fallback')
+  console.log('[yt-dlp] Attempt 2: tv_embedded + cookies')
   try {
     const out = await runYtdlp([...ARGS_WITH_COOKIES!, ...infoArgs])
     console.log('[yt-dlp] Attempt 2 SUCCESS (cookies worked)')
     return { data: JSON.parse(out), usedCookies: true }
   } catch (err: any) {
-    console.error('[yt-dlp] Attempt 2 failed:', err.message.slice(0, 120))
+    console.error('[yt-dlp] Attempt 2 failed:', err.message.slice(0, 150))
     throw err
   }
 }
