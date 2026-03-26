@@ -14,17 +14,18 @@ const FORMAT_MAP: Record<string, string> = {
 const router = Router()
 
 router.get('/', (req: Request, res: Response) => {
-  const { url, quality = 'best', filename = 'video.mp4' } = req.query
+  const { url, quality = 'best', filename = 'video.mp4', cookies } = req.query
   if (!url || typeof url !== 'string') {
     return res.status(400).json({ error: 'url param is required' })
   }
 
   const format = FORMAT_MAP[quality as string] ?? FORMAT_MAP['best']
+  const useCookies = cookies === '1'
 
   res.setHeader('Content-Type', 'video/mp4')
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
 
-  const proc = ytdlpStream(url, format)
+  const proc = ytdlpStream(url, format, useCookies)
 
   proc.stdout.pipe(res)
 

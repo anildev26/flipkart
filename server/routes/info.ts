@@ -8,6 +8,7 @@ export type VideoInfo = {
   duration: number
   platform: string
   qualities: VideoFormat[]
+  usedCookies: boolean
 }
 
 const STANDARD_HEIGHTS = [2160, 1440, 1080, 720, 480, 360]
@@ -29,7 +30,7 @@ router.post('/', async (req: Request, res: Response) => {
   }
 
   try {
-    const info = await Promise.race([
+    const { data: info, usedCookies } = await Promise.race([
       ytdlpInfo(url),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Request timed out. Please try again.')), 50_000)
@@ -57,6 +58,7 @@ router.post('/', async (req: Request, res: Response) => {
       duration: info.duration ?? 0,
       platform: detectPlatform(url),
       qualities,
+      usedCookies,
     } satisfies VideoInfo)
   } catch (err: any) {
     const msg: string = err?.message || ''

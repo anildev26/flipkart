@@ -9,6 +9,7 @@ type VideoInfo = {
   duration: number
   platform: string
   qualities: Quality[]
+  usedCookies: boolean
 }
 
 const PLATFORM_COLORS: Record<string, string> = {
@@ -84,7 +85,7 @@ export default function VideoDownloader() {
     // Build download URL — hitting this endpoint streams yt-dlp output with audio+video merged.
     // Browser receives the stream and shows its native download progress bar.
     const filename = `${info.title.replace(/[^a-z0-9]/gi, '_').slice(0, 60)}.mp4`
-    const href = `${API_URL}/api/download?url=${encodeURIComponent(url.trim())}&quality=${encodeURIComponent(selected.quality)}&filename=${encodeURIComponent(filename)}`
+    const href = `${API_URL}/api/download?url=${encodeURIComponent(url.trim())}&quality=${encodeURIComponent(selected.quality)}&filename=${encodeURIComponent(filename)}${info.usedCookies ? '&cookies=1' : ''}`
     const a = document.createElement('a')
     a.href = href
     a.download = filename
