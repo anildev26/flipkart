@@ -40,6 +40,11 @@ router.post('/', async (req: Request, res: Response) => {
         noWarnings: true,
         noPlaylist: true,
         socketTimeout: 15,
+        // Use Android client — bypasses YouTube bot detection without needing cookies
+        extractorArgs: 'youtube:player_client=android,web',
+        addHeader: [
+          'User-Agent:Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
+        ],
       }) as Promise<any>,
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Request timed out. Please try again.')), 45_000)
@@ -73,10 +78,11 @@ router.post('/', async (req: Request, res: Response) => {
     } satisfies VideoInfo)
   } catch (err: any) {
     const msg: string = err?.stderr || err?.message || ''
-    if (/private|login|sign in/i.test(msg)) {
-      return res.status(500).json({ error: 'This video is private or requires login.' })
+    // Only show "private" if it's actually private, not bot-detection
+    if (/video is private/i.test(msg)) {
+      return res.status(500).json({ error: 'This video is private.' })
     }
-    return res.status(500).json({ error: err.message || 'Could not fetch video info.' })
+    return res.status(500).json({ error: 'Could not fetch video. The URL may be unsupported or region-blocked.' })
   }
 })
 

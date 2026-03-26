@@ -34,9 +34,13 @@ router.get('/', (req: Request, res: Response) => {
   // .raw() returns a ChildProcess — stdout is the video stream
   const proc = (youtubeDl as any).raw(url, {
     format,
-    output: '-',          // pipe output to stdout
+    output: '-',
     noWarnings: true,
     noPlaylist: true,
+    extractorArgs: 'youtube:player_client=android,web',
+    addHeader: [
+      'User-Agent:Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
+    ],
     ...(ffmpegPath ? { ffmpegLocation: ffmpegPath } : {}),
   })
 
