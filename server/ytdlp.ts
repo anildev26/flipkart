@@ -22,8 +22,11 @@ if (process.env.YOUTUBE_COOKIES) {
 const BASE_ARGS = [
   '--no-warnings',
   '--no-playlist',
-  '--extractor-args', 'youtube:player_client=android,web',
+  // tv_embedded = YouTube's embedded player client, no bot/sign-in check
+  // android_vr is fallback — both bypass bot detection without cookies
+  '--extractor-args', 'youtube:player_client=tv_embedded,android_vr',
   '--add-header', 'User-Agent:Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
+  '--no-check-certificates',
   ...(cookiesFile ? ['--cookies', cookiesFile] : []),
   ...(ffmpegPath ? ['--ffmpeg-location', ffmpegPath] : []),
 ]
