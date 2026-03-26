@@ -29,55 +29,61 @@ const BASE = [
 ]
 
 const ATTEMPTS: Array<{ label: string; args: string[] }> = [
-  // 1. tv_embedded — no bot check, works for most public videos
   {
     label: 'tv_embedded (no cookies)',
     args: [...BASE, '--extractor-args', 'youtube:player_client=tv_embedded,android_vr,mweb'],
   },
-  // 2. tv_embedded + cookies — for bot-gated videos
   ...(cookiesFile ? [{
     label: 'tv_embedded + cookies',
     args: [...BASE, '--extractor-args', 'youtube:player_client=tv_embedded,android_vr,mweb', '--cookies', cookiesFile],
   }] : []),
-  // 3. web + cookies — full access, handles embedding-disabled / age-restricted videos
   ...(cookiesFile ? [{
     label: 'web + cookies (full access)',
     args: [...BASE, '--extractor-args', 'youtube:player_client=web,android', '--cookies', cookiesFile],
   }] : []),
 ]
 
-function runYtdlp(args: string[]): Promise<string> {
+// Per-attempt timeout — kills yt-dlp if it hangs so next attempt can run
+function runYtdlp(args: string[], timeoutMs = 25_000): Promise<string> {
   return new Promise((resolve, reject) => {
     let stdout = ''
     let stderr = ''
     const proc = spawn(YTDLP, args)
+
+    const timer = setTimeout(() => {
+      proc.kill('SIGTERM')
+      reject(new Error(`yt-dlp timed out after ${timeoutMs / 1000}s`))
+    }, timeoutMs)
+
     proc.stdout.on('data', (d: Buffer) => { stdout += d.toString() })
     proc.stderr.on('data', (d: Buffer) => { stderr += d.toString() })
-    proc.on('error', (err) => reject(new Error(`yt-dlp not found at ${YTDLP}: ${err.message}`)))
+    proc.on('error', (err) => {
+      clearTimeout(timer)
+      reject(new Error(`yt-dlp not found at ${YTDLP}: ${err.message}`))
+    })
     proc.on('close', (code) => {
+      clearTimeout(timer)
       if (code === 0) resolve(stdout)
       else reject(new Error(stderr.trim() || `yt-dlp exited with code ${code}`))
     })
   })
 }
 
-// Retry on any yt-dlp error (bot, format unavailable, etc.) — stop only on success
 export async function ytdlpInfo(url: string): Promise<{ data: any; usedCookies: boolean; method: string }> {
-  // -f best prevents "format not available" when client has limited formats
   const infoArgs = ['--dump-single-json', '--format', 'bestvideo+bestaudio/best', '--socket-timeout', '15', url]
   let lastErr: Error = new Error('All attempts failed')
 
   for (const attempt of ATTEMPTS) {
     try {
-      console.log(`[yt-dlp] Trying: ${attempt.label} → ${url}`)
+      console.log(`[yt-dlp] Trying: ${attempt.label}`)
       const out = await runYtdlp([...attempt.args, ...infoArgs])
-      console.log(`[yt-dlp] SUCCESS: ${attempt.label}`)
+      console.log(`[yt-dlp] SUCCESS via: ${attempt.label}`)
       const usedCookies = attempt.label.includes('cookies')
       return { data: JSON.parse(out), usedCookies, method: attempt.label }
     } catch (err: any) {
-      // Always try next attempt regardless of error type
       console.warn(`[yt-dlp] FAILED (${attempt.label}): ${err.message.slice(0, 150)}`)
       lastErr = err
+      // always continue to next attempt
     }
   }
 
@@ -85,7 +91,6 @@ export async function ytdlpInfo(url: string): Promise<{ data: any; usedCookies: 
 }
 
 export function ytdlpStream(url: string, format: string, useCookies = false) {
-  // Pick the most capable args that match what worked during info fetch
   const args = useCookies && cookiesFile
     ? [...BASE, '--extractor-args', 'youtube:player_client=web,android', '--cookies', cookiesFile]
     : [...BASE, '--extractor-args', 'youtube:player_client=tv_embedded,android_vr,mweb']

@@ -34,7 +34,7 @@ router.post('/', async (req: Request, res: Response) => {
     const { data: info, usedCookies, method } = await Promise.race([
       ytdlpInfo(url),
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Request timed out. Please try again.')), 50_000)
+        setTimeout(() => reject(new Error('Request timed out. Please try again.')), 90_000)
       ),
     ])
 
